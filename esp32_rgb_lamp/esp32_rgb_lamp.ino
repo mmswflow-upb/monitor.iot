@@ -62,8 +62,8 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       DeserializationError error = deserializeJson(jsonDoc, payload);
 
       if (!error) {
-        if (jsonDoc.containsKey("type")) {
-            String receivedType = jsonDoc["type"].as<String>();
+        if (jsonDoc.containsKey("messageType")) {
+            String receivedType = jsonDoc["messageType"].as<String>();
 
             if (receivedType == "ping") {
                 // Handle the "ping" type
