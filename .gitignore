@@ -1,0 +1,2 @@
+# Ignore all credentials.h files
+**/credentials.h

@@ -5,7 +5,10 @@
 #include <WebSocketsClient_Generic.h> // For WebSocket connection
 #include "credentials.h"
 
-
+// const char* ssid = "IoTProjectWifi";           
+// const char* password = "12345678";  
+// const String serverUrl = "http://127.0.0.1:8080";
+// const String socketUrl = "ws://127.0.0.1:8080";
 
 // Device Info
 const String deviceName = "ESP32-RGB-Lamp";
@@ -59,12 +62,22 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       DeserializationError error = deserializeJson(jsonDoc, payload);
 
       if (!error) {
-        if(jsonDoc.containsKey("type")){
-          String pongMessage = "{\"type\": \"pong\", \"message\": \"pong\"}";
-          webSocket.sendTXT(pongMessage);  // Send pong back to server
-          
-          break;
+        if (jsonDoc.containsKey("type")) {
+            String receivedType = jsonDoc["type"].as<String>();
+
+            if (receivedType == "ping") {
+                // Handle the "ping" type
+                String pongMessage = "{\"type\": \"pong\", \"message\": \"pong\"}";
+                webSocket.sendTXT(pongMessage); // Send pong back to server
+            } 
+            else if (receivedType == "userDisconnected") {
+                Serial.println("User disconnected");
+            }
+
+            // Exit the current handling logic
+            break;
         }
+
         // Check if the message contains RGB values
         if(jsonDoc.containsKey("data")){
           Serial.print("Device Object Updated: ");
