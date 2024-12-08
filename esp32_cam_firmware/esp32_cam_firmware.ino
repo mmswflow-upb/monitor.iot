@@ -1,43 +1,32 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include "mbedtls/base64.h" // For Base64 decoding
+#include "mbedtls/base64.h"
 #include <WebSocketsClient_Generic.h> // For WebSocket connection
 #include "credentials.h"
-
-
+#include <esp_camera.h>
 
 // Device Info
-const String deviceName = "ESP32-RGB-Lamp";
-const String deviceType = "RGB-Lamp";
+const String deviceName = "ESP32-CAM-Streamer";
+const String deviceType = "Camera-Streamer";
 const String deviceId = "1bA";
 
-// RGB LED Pins (common anode)
-#define RED_PIN 15
-#define GREEN_PIN 2
-#define BLUE_PIN 14
+// Camera Pins (change based on your ESP32-CAM model)
+#define CAMERA_MODEL_AI_THINKER
+#include "camera_pins.h"
 
+// WebSocket connection
 WebSocketsClient webSocket;
 
 String jwtToken;
 String userId;
 
-// Default RGB values (initial values can be set to 0)
-int r = 0, g = 200, b = 0;
 
-// Device data object (initialized before connecting to the server)
-StaticJsonDocument<512> deviceData;
+// Device data object (initializing with default values)
+StaticJsonDocument<512> deviceData;  // You can expand this size as needed
 
-void setupDeviceData() {
-  // Initialize the device data with default values
-  deviceData["userId"] = "";  // Initially empty, will be set after login
-  deviceData["deviceId"] = deviceId;
-  deviceData["deviceName"] = deviceName;
-  deviceData["deviceType"] = deviceType;
-  deviceData["data"]["r"] = r;
-  deviceData["data"]["g"] = g;
-  deviceData["data"]["b"] = b;
-}
+// Capture Frame Interval (to achieve 30fps, 33ms per frame)
+const int frameInterval = 33;
 
 // WebSocket event handler
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
@@ -48,47 +37,40 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
 
     case WStype_CONNECTED:
       Serial.println("WebSocket connected.");
-      // Send device information as soon as the connection is established
-      sendDeviceInfoToServer();
+      sendDeviceInfoToServer();  // Send initial device info
       break;
 
     case WStype_TEXT: {
-      
-
+      // Deserialize the incoming message to check for the active setting
       StaticJsonDocument<512> jsonDoc;
       DeserializationError error = deserializeJson(jsonDoc, payload);
 
       if (!error) {
-        if(jsonDoc.containsKey("type")){
-          String pongMessage = "{\"type\": \"pong\", \"message\": \"pong\"}";
-          webSocket.sendTXT(pongMessage);  // Send pong back to server
-          
-          break;
+        if (jsonDoc.containsKey("messageType")) {
+            String receivedType = jsonDoc["messageType"].as<String>();
+
+            if (receivedType == "ping") {
+                // Handle the "ping" type
+                String pongMessage = "{\"messageType\": \"pong\", \"message\": \"pong\"}";
+                webSocket.sendTXT(pongMessage); // Send pong back to server
+            } 
+            else if (receivedType == "userDisconnected") {
+                Serial.println("User disconnected");
+            }
+
+            // Exit the current handling logic
+            break;
         }
-        // Check if the message contains RGB values
-        if(jsonDoc.containsKey("data")){
-          Serial.print("Device Object Updated: ");
-          Serial.println((char *)payload);
-          
-          
-            // Update the global RGB values
-            r = jsonDoc["data"]["r"].as<int>();
-            g = jsonDoc["data"]["g"].as<int>();
-            b = jsonDoc["data"]["b"].as<int>();
 
-            Serial.println("New RGB: " + String(r) + ", " + String(g) + ", " + String(b));
 
-            // Since it's a common anode RGB LED, invert the PWM values
-            analogWrite(RED_PIN, 255 - r);   // Invert red PWM value
-            analogWrite(GREEN_PIN, 255 - g); // Invert green PWM value
-            analogWrite(BLUE_PIN, 255 - b);  // Invert blue PWM value
-
-            // Update deviceData with new color values
-            deviceData["data"]["r"] = r;
-            deviceData["data"]["g"] = g;
-            deviceData["data"]["b"] = b;
+        // You can also update other fields from the server (e.g., RGB values, other device settings)
+        if (jsonDoc.containsKey("data")) {
+          if (jsonDoc["data"].containsKey("active")) {
+         
+            deviceData["data"]["active"] = jsonDoc["data"]["active"];
+           
+          }
         }
-        
       } else {
         Serial.println("Failed to parse WebSocket message as JSON.");
         Serial.print("Error: ");
@@ -102,40 +84,22 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   }
 }
 
-String base64UrlDecode(const String &input) {
-  String decodedInput = input;
-
-  // Replace URL-safe characters
-  decodedInput.replace('-', '+');
-  decodedInput.replace('_', '/');
-
-  // Pad with '=' characters to make the length a multiple of 4
-  while (decodedInput.length() % 4 != 0) {
-    decodedInput += '=';
-  }
-
-  // Decode base64
-  size_t outputLen = 0;
-  unsigned char outputBuffer[512];
-
-  int result = mbedtls_base64_decode(outputBuffer, sizeof(outputBuffer), &outputLen,
-                                     (const unsigned char *)decodedInput.c_str(), decodedInput.length());
-
-  if (result == 0) {
-    return String((char *)outputBuffer).substring(0, outputLen);
-  } else {
-    Serial.println("Base64 decoding failed.");
-    return "";
-  }
+void sendDeviceInfoToServer() {
+  // Convert deviceData to a JSON string and send it over WebSocket
+  String deviceJson;
+  serializeJson(deviceData, deviceJson);
+  webSocket.sendTXT(deviceJson);
+  Serial.println("Device info sent to the server: " + deviceJson);
 }
 
 bool loginToServer() {
+  // Same login process as your original code
   HTTPClient http;
   String loginUrl = serverUrl + "/login";
   http.begin(loginUrl);
   http.addHeader("Content-Type", "application/json");
 
-  String postData = "{\"email\":\"mmswflow@gmail.com\",\"password\":\"123456\"}";
+  String postData = "{\"email\":\"your-email@example.com\",\"password\":\"your-password\"}";
   int httpResponseCode = http.POST(postData);
 
   if (httpResponseCode <= 0) {
@@ -155,83 +119,91 @@ bool loginToServer() {
   }
 
   jwtToken = jsonDoc["token"].as<String>();
-
-  // Decode the JWT payload
-  String payloadEncoded = jwtToken.substring(jwtToken.indexOf('.') + 1, jwtToken.lastIndexOf('.'));
-  String decodedPayload = base64UrlDecode(payloadEncoded);
-
-  if (decodedPayload.isEmpty()) {
-    Serial.println("Failed to decode JWT payload.");
-    return false;
-  }
-
-  Serial.println("Decoded JWT Payload: " + decodedPayload);
-
-  StaticJsonDocument<1024> payloadDoc;
-  error = deserializeJson(payloadDoc, decodedPayload);
-
-  if (error || !payloadDoc.containsKey("id")) {
-    Serial.println("Invalid token payload.");
-    return false;
-  }
-
-  userId = payloadDoc["id"].as<String>();
-  Serial.println("User ID extracted: " + userId);
-  
-  // Update device data with userId after successful login
-  deviceData["userId"] = userId;
-
   return true;
 }
 
-void sendDeviceInfoToServer() {
-  // Convert device object to JSON string
-  String deviceJson;
-  serializeJson(deviceData, deviceJson);
+void captureAndSendFrame() {
+  camera_fb_t *fb = esp_camera_fb_get();  // Capture a frame from the camera
 
-  // Send the device object via WebSocket
-  webSocket.sendTXT(deviceJson);
-  Serial.println("Device info sent to the server: " + deviceJson);
-}
+  if (fb) {
+    // Convert the image to base64 (optional step for encoding)
+    String base64Image = base64::encode(fb->buf, fb->len);
 
-void connectToWebSocket() {
-  String host = "monitor-iot-server-b4531a0ea68c.herokuapp.com"; // WebSocket host
-  uint16_t port = 80;                  // Heroku uses port 80 for WebSocket connections
+    // Prepare WebSocket message (you can modify this to add other metadata if needed)
+    String imageMessage = "{\"type\": \"image\", \"data\": \"" + base64Image + "\"}";
 
-  String path = "/?token=" + jwtToken + 
-                "&userId=" + userId + 
-                "&type=mcu" + 
-                "&deviceId=" + deviceId +
-                "&deviceName=" + deviceName + 
-                "&deviceType=" + deviceType;
+    // Send the image over WebSocket if the connection is active
+    if (webSocket.isConnected()) {
+      webSocket.sendTXT(imageMessage);
+    }
 
-  webSocket.begin(host.c_str(), port, path.c_str(), "");
-  webSocket.onEvent(webSocketEvent);
+    // Free the frame buffer
+    esp_camera_fb_return(fb);
+
+    Serial.println("Image sent: " + String(fb->len) + " bytes");
+  }
 }
 
 void setup() {
   Serial.begin(115200);
 
-  // Setup device data with default values before any connection
-  setupDeviceData();
-
+  // Connect to Wi-Fi
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) delay(500);
-
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
   Serial.println("Connected to WiFi");
 
-  // Initialize RGB LED pins
-  pinMode(RED_PIN, OUTPUT);
-  pinMode(GREEN_PIN, OUTPUT);
-  pinMode(BLUE_PIN, OUTPUT);
+  // Initialize camera
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = 32;
+  config.pin_d1 = 35;
+  config.pin_d2 = 34;
+  config.pin_d3 = 23;
+  config.pin_d4 = 22;
+  config.pin_d5 = 21;
+  config.pin_d6 = 19;
+  config.pin_d7 = 18;
+  config.pin_xclk = 0;
+  config.pin_pclk = 4;
+  config.pin_vsync = 5;
+  config.pin_href = 13;
+  config.pin_sscb_sda = 26;
+  config.pin_sscb_scl = 27;
+  config.pin_pwdn = 32;
+  config.pin_reset = -1;
+  config.xclk_freq_hz = 20000000;
+  config.frame_size = FRAMESIZE_SVGA; // You can adjust resolution here
+  config.pixel_format = PIXFORMAT_JPEG;
 
- 
+  esp_camera_init(&config);
 
+  // Set initial values for deviceData (this can be updated dynamically later)
+  deviceData["deviceId"] = deviceId;
+  deviceData["deviceName"] = deviceName;
+  deviceData["deviceType"] = deviceType;
+  deviceData["data"]["active"] = false;
+
+  // If login is successful, connect to WebSocket
   if (loginToServer()) {
-    connectToWebSocket(); 
+    String host = "your-websocket-server.com";
+    String path = "/stream?token=" + jwtToken + "&userId=" + userId + "&deviceId=" + deviceId;
+    webSocket.begin(host.c_str(), 80, path.c_str(), "");
+    webSocket.onEvent(webSocketEvent);
   }
 }
 
 void loop() {
-  webSocket.loop();  // Listen for WebSocket messages
+  webSocket.loop();  // Maintain WebSocket connection
+  unsigned long currentMillis = millis();
+
+  // Capture and send frames at 30fps (every 33ms) only if 'active' is true
+  static unsigned long lastCaptureTime = 0;
+  if (deviceData["data"]["active"] && (currentMillis - lastCaptureTime >= frameInterval)) {
+    lastCaptureTime = currentMillis;
+    captureAndSendFrame();
+  }
 }
