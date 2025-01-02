@@ -26,7 +26,7 @@ String userId;
 StaticJsonDocument<512> deviceData;  // You can expand this size as needed
 
 // Capture Frame Interval (to achieve 30fps, 33ms per frame)
-const int frameInterval = 33;
+const int frameInterval = 200;
 
 // WebSocket event handler
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
@@ -69,7 +69,16 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
         if (jsonDoc.containsKey("data")) {
           if (jsonDoc["data"].containsKey("active")) {
          
-            deviceData["data"]["active"] = jsonDoc["data"]["active"];
+            if(jsonDoc["data"]["active"] == false && deviceData["data"]["active"] == true){
+
+              deviceData["data"]["binaryFrame"] = "";
+              deviceData["data"]["active"] = jsonDoc["data"]["active"];
+
+              sendDeviceInfoToServer();
+            }else{
+              deviceData["data"]["active"] = jsonDoc["data"]["active"];
+            }
+            
            
           }
         }
