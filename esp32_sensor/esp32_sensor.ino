@@ -1,41 +1,150 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "mbedtls/base64.h"       // For base64 decoding
+#include <WebSocketsClient_Generic.h> // Same WebSockets library as ESP32-CAM
+#include "credentials.h"          // Must define ssid, password, serverHost, email, acc_pass
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include <DHT_U.h>
-#include "credentials.h"
-#include <WebSocketsClient.h>
 
+// -------------------------------------------------------------------------------------------
 // Device Info
+// -------------------------------------------------------------------------------------------
 const String deviceName = "ESP32-DHT22";
 const String deviceType = "Temperature-Humidity-Sensor";
-const String deviceId = "1bA";
+const String deviceId   = "sensor1";
 
-// DHT22 setup
-#define DHTPIN 4 // Pin connected to the DHT22 data pin
+// -------------------------------------------------------------------------------------------
+// DHT22 Setup
+// -------------------------------------------------------------------------------------------
+#define DHTPIN  4    // Pin connected to the DHT22 data pin
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
+// -------------------------------------------------------------------------------------------
+// WebSocket
+// -------------------------------------------------------------------------------------------
 WebSocketsClient webSocket;
 
+// -------------------------------------------------------------------------------------------
+// Global variables
+// -------------------------------------------------------------------------------------------
 String jwtToken;
 String userId;
 
-// Device data object (initialized before connecting to the server)
+// -------------------------------------------------------------------------------------------
+// Device data object (same structure, storing sensor data in "data")
+// -------------------------------------------------------------------------------------------
 StaticJsonDocument<512> deviceData;
 
 void setupDeviceData() {
-  // Initialize the device data with default values
-  deviceData["userId"] = "";  // Initially empty, will be set after login
-  deviceData["deviceId"] = deviceId;
+  deviceData["userId"]     = "";
+  deviceData["deviceId"]   = deviceId;
   deviceData["deviceName"] = deviceName;
   deviceData["deviceType"] = deviceType;
+  // Store temperature & humidity under "data"
   deviceData["data"]["temperature"] = 0.0;
-  deviceData["data"]["humidity"] = 0.0;
+  deviceData["data"]["humidity"]    = 0.0;
 }
 
-// WebSocket event handler
+// -------------------------------------------------------------------------------------------
+// Base64 URL decode (identical to the ESP32-CAM approach)
+// -------------------------------------------------------------------------------------------
+String base64UrlDecode(const String &input) {
+  String decodedInput = input;
+
+  // Replace URL-safe characters
+  decodedInput.replace('-', '+');
+  decodedInput.replace('_', '/');
+
+  // Pad with '=' characters to make the length a multiple of 4
+  while (decodedInput.length() % 4 != 0) {
+    decodedInput += '=';
+  }
+
+  // Decode base64
+  size_t outputLen = 0;
+  unsigned char outputBuffer[512];
+
+  int result = mbedtls_base64_decode(outputBuffer,
+                                     sizeof(outputBuffer),
+                                     &outputLen,
+                                     (const unsigned char *)decodedInput.c_str(),
+                                     decodedInput.length());
+
+  if (result == 0) {
+    return String((char *)outputBuffer).substring(0, outputLen);
+  } else {
+    return "";
+  }
+}
+
+// -------------------------------------------------------------------------------------------
+// Log in to the server (same approach as ESP32-CAM)
+// -------------------------------------------------------------------------------------------
+bool loginToServer() {
+  HTTPClient http;
+
+  // Build the URL in the same way as the ESP32-CAM code
+  String loginUrl = "https://" + serverHost + "/login";
+
+  http.begin(loginUrl);
+  http.addHeader("Content-Type", "application/json");
+
+  // Send credentials in the same format
+  String postData = "{\"email\":\"" + String(email) + "\",\"password\":\"" + String(acc_pass) + "\"}";
+  int httpResponseCode = http.POST(postData);
+
+  if (httpResponseCode <= 0) {
+    Serial.printf("HTTP POST failed: %s\n", http.errorToString(httpResponseCode).c_str());
+    return false;
+  }
+
+  String responseBody = http.getString();
+  Serial.println("Server response: " + responseBody);
+
+  // Parse JSON
+  StaticJsonDocument<1024> jsonDoc;
+  DeserializationError error = deserializeJson(jsonDoc, responseBody);
+
+  if (error || !jsonDoc.containsKey("token")) {
+    Serial.println("Invalid server response.");
+    return false;
+  }
+
+  jwtToken = jsonDoc["token"].as<String>();
+
+  // Decode the JWT payload (same method as ESP32-CAM)
+  String payloadEncoded = jwtToken.substring(jwtToken.indexOf('.') + 1, jwtToken.lastIndexOf('.'));
+  String decodedPayload = base64UrlDecode(payloadEncoded);
+
+  if (decodedPayload.isEmpty()) {
+    Serial.println("Failed to decode JWT payload.");
+    return false;
+  }
+
+  // Parse the payload
+  StaticJsonDocument<1024> payloadDoc;
+  error = deserializeJson(payloadDoc, decodedPayload);
+
+  if (error || !payloadDoc.containsKey("id")) {
+    Serial.println("Invalid token payload.");
+    return false;
+  }
+
+  userId = payloadDoc["id"].as<String>();
+  Serial.println("User ID extracted: " + userId);
+
+  // Update device data with userId after successful login
+  deviceData["userId"] = userId;
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------
+// WebSocket event handler (mimics the ESP32-CAM code's event handler)
+// -------------------------------------------------------------------------------------------
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
@@ -49,8 +158,36 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       break;
 
     case WStype_TEXT: {
-      Serial.print("Received message: ");
-      Serial.println((char *)payload);
+      // Just like ESP32-CAM, parse for messageType
+      StaticJsonDocument<1024> jsonDoc;
+      DeserializationError error = deserializeJson(jsonDoc, payload, length);
+
+      if (!error) {
+        if (jsonDoc.containsKey("messageType")) {
+          String receivedType = jsonDoc["messageType"].as<String>();
+
+          if (receivedType == "ping") {
+            // Send pong back to server
+            String pongMessage = "{\"messageType\": \"pong\", \"message\": \"pong\"}";
+            webSocket.sendTXT(pongMessage);
+          } 
+          else if (receivedType == "userDisconnected") {
+            Serial.println("User disconnected");
+          }
+
+          // Stop further processing once known messageType is handled
+          break;
+        }
+
+        // If there's additional data from the server we want to handle, do it here.
+        // (We are not altering temperature/humidity code—just an example placeholder)
+        if (jsonDoc.containsKey("data")) {
+          // You could parse server-side updates if needed
+          Serial.println("Received server data: ");
+          serializeJson(jsonDoc["data"], Serial);
+          Serial.println();
+        }
+      }
       break;
     }
 
@@ -59,69 +196,43 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   }
 }
 
-bool loginToServer() {
-  HTTPClient http;
-  String loginUrl = String(serverUrl) + "/login";
-  http.begin(loginUrl);
-  http.addHeader("Content-Type", "application/json");
-
-  String postData = "{\"email\":\"mmswflow@gmail.com\",\"password\":\"123456\"}";
-  int httpResponseCode = http.POST(postData);
-
-  if (httpResponseCode <= 0) {
-    Serial.printf("HTTP POST failed: %s\n", http.errorToString(httpResponseCode).c_str());
-    return false;
-  }
-
-  String responseBody = http.getString();
-  Serial.println("Server response: " + responseBody);
-
-  StaticJsonDocument<1024> jsonDoc;
-  DeserializationError error = deserializeJson(jsonDoc, responseBody);
-
-  if (error || !jsonDoc.containsKey("token")) {
-    Serial.println("Invalid server response.");
-    return false;
-  }
-
-  jwtToken = jsonDoc["token"].as<String>();
-  userId = jsonDoc["id"].as<String>();
-
-  // Update device data with userId after successful login
-  deviceData["userId"] = userId;
-
-  return true;
-}
-
+// -------------------------------------------------------------------------------------------
+// Send device info to server (same approach as ESP32-CAM)
+// -------------------------------------------------------------------------------------------
 void sendDeviceInfoToServer() {
-  // Convert device object to JSON string
   String deviceJson;
   serializeJson(deviceData, deviceJson);
 
-  // Send the device object via WebSocket
-  webSocket.sendTXT(deviceJson);
-  Serial.println("Device info sent to the server: " + deviceJson);
+  if (webSocket.isConnected()) {
+    webSocket.sendTXT(deviceJson);
+    Serial.println("Device info sent to the server: " + deviceJson);
+  }
 }
 
+// -------------------------------------------------------------------------------------------
+// Connect to WebSocket (mirrors the ESP32-CAM approach)
+// -------------------------------------------------------------------------------------------
 void connectToWebSocket() {
-  String host = "monitor-iot-server-b4531a0ea68c.herokuapp.com"; // WebSocket host
-  uint16_t port = 80;                  // Heroku uses port 80 for WebSocket connections
-
-  String path = "/?token=" + jwtToken + 
-                "&userId=" + userId + 
-                "&type=mcu" + 
+  // Build the path with query parameters (same as ESP32-CAM)
+  String path = "/?token=" + jwtToken +
+                "&userId=" + userId +
+                "&type=mcu" +
                 "&deviceId=" + deviceId +
-                "&deviceName=" + deviceName + 
+                "&deviceName=" + deviceName +
                 "&deviceType=" + deviceType;
 
-  webSocket.begin(host.c_str(), port, path.c_str(), "");
+  // Use port 80 if your serverHost is an HTTP endpoint.
+  // If your server is HTTPS for WS (wss), you might need a secure port (e.g., 443).
+  webSocket.begin(serverHost.c_str(), 80, path.c_str(), "");
   webSocket.onEvent(webSocketEvent);
 }
 
-// Function to read sensor data
+// -------------------------------------------------------------------------------------------
+// Function to read sensor data (unchanged)
+// -------------------------------------------------------------------------------------------
 void readSensorData() {
   float temperature = dht.readTemperature();
-  float humidity = dht.readHumidity();
+  float humidity    = dht.readHumidity();
 
   if (isnan(temperature) || isnan(humidity)) {
     Serial.println("Failed to read from DHT sensor!");
@@ -130,7 +241,7 @@ void readSensorData() {
 
   // Update the device data with sensor values
   deviceData["data"]["temperature"] = temperature;
-  deviceData["data"]["humidity"] = humidity;
+  deviceData["data"]["humidity"]    = humidity;
 
   Serial.println("Sensor data updated:");
   Serial.println("Temperature: " + String(temperature) + "°C");
@@ -140,15 +251,19 @@ void readSensorData() {
   sendDeviceInfoToServer();
 }
 
+// -------------------------------------------------------------------------------------------
+// Setup
+// -------------------------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
 
-  // Setup device data with default values before any connection
+  // Setup device data
   setupDeviceData();
 
-  // Initialize DHT sensor
+  // Initialize the DHT sensor
   dht.begin();
 
+  // Connect to Wi-Fi
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -156,16 +271,22 @@ void setup() {
   }
   Serial.println("\nConnected to WiFi");
 
+  // Log in to the server; if success, connect to WebSocket
   if (loginToServer()) {
-    connectToWebSocket(); 
+    connectToWebSocket();
   }
 }
 
+// -------------------------------------------------------------------------------------------
+// Loop
+// -------------------------------------------------------------------------------------------
 void loop() {
-  webSocket.loop();  // Listen for WebSocket messages
+  // Keep the WebSocket connection alive
+  webSocket.loop();
 
+  // Read sensor data every 5 seconds (example interval)
   static unsigned long lastSensorReadTime = 0;
-  if (millis() - lastSensorReadTime >= 5000) { // Read sensor data every 5 seconds
+  if (millis() - lastSensorReadTime >= 5000) {
     readSensorData();
     lastSensorReadTime = millis();
   }
