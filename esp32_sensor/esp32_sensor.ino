@@ -11,9 +11,9 @@
 // -------------------------------------------------------------------------------------------
 // Device Info
 // -------------------------------------------------------------------------------------------
-const String deviceName = "ESP32-DHT22";
+const String deviceName = "Temperature-Humidity-Sensor";
 const String deviceType = "Temperature-Humidity-Sensor";
-const String deviceId   = "sensor1";
+const String deviceId   = "sensor4";
 
 // -------------------------------------------------------------------------------------------
 // DHT22 Setup
