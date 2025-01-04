@@ -189,6 +189,8 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
           deviceData["data"]["r"] = r;
           deviceData["data"]["g"] = g;
           deviceData["data"]["b"] = b;
+
+          sendDeviceInfoToServer();
         }
       } else {
         Serial.print("Failed to parse WebSocket message: ");
