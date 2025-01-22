@@ -1,2 +1,8 @@
-# monitor-iot-mcu-firmware
-The Firmware for the MCUs used in the Monitor.IoT project - Year III Sem I
+# Monitor.IoT
+Cloud Service for Monitoring & Controlling IoT Devices
+
+# Overview
+
+# Architecture
+
+# Technical Details
