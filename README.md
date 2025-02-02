@@ -20,3 +20,4 @@ This is a smart things project which implements cameras, sensors and rgb lamps t
 
 # Technical Details
 
+Enter the directories for the different parts of the project (backend, frontend, firmware), and you will find there details about each one of them.
