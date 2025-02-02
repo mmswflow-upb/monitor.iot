@@ -18,6 +18,8 @@ This is a smart things project which implements cameras, sensors and rgb lamps t
 - An expressJS-based server hosted on Heroku, that handles socket connections in order to exchange data between the client app and MCUs by using Redis pub/sub channels
 - A database hosted on MongoDB Atlas for storing user credentials
 
+# Bill of Materials
+
 # Technical Details
 
 Enter the directories for the different parts of the project (backend, frontend, firmware), and you will find there details about each one of them.
