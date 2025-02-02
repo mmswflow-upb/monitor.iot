@@ -1,4 +1,4 @@
-# Monitor.IoT
+# Monitor.IoT 🌐📷💡🌡️
 End-to-End Service for Monitoring & Controlling IoT Devices
 
 # Description
