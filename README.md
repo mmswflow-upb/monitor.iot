@@ -1,6 +1,11 @@
 # Monitor.IoT 🌐📷💡🌡️
 End-to-End Service for Monitoring & Controlling IoT Devices
 
+# Team
+
+Sakka Mohamad-Mario: Cloud, Client App & Firmware
+Zafar Azzam: Cloud, Firmware & Documentation
+
 # Description
 
 This is a smart things project which implements cameras, sensors and rgb lamps that can be easily controlled or monitored by users through an app that can run on any device as long as it's connected to the internet. Some of the key features are:
@@ -23,3 +28,12 @@ This is a smart things project which implements cameras, sensors and rgb lamps t
 # Technical Details
 
 Enter the directories for the different parts of the project (backend, frontend, firmware), and you will find there details about each one of them.
+
+# Links
+
+These are some links which inspired us to work on this project
+
+- ESP32-CAM: https://www.youtube.com/watch?v=hSr557hppwY
+- Temperature & Humidity Sensor (DHT22): https://randomnerdtutorials.com/esp32-dht11-dht22-temperature-humidity-sensor-arduino-ide/
+- Hosting our Server on Heroku: https://www.freecodecamp.org/news/how-to-deploy-your-site-using-express-and-heroku/
+- Using Redis Pub/Sub Channels: https://neelesh-arora.medium.com/setup-pub-sub-using-redis-and-express-f23a86d4f967
