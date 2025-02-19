@@ -34,7 +34,7 @@ This is a smart things project which implements cameras, sensors and rgb lamps t
 | [ESP32-CAM](https://ardushop.ro/10841-large_default/modul-esp32-cu-camera.jpg) | Live Video Feed | [1 x 54.94 RON](https://ardushop.ro/ro/comunicatie/1374-modul-esp32-cu-camera-6427854020031.html)  |                                                                   
 | [Breadboard 830 Points](https://static.optimusdigital.ro/54847-large_default/breadboard-hq-830-points.jpg) | Connectivity | [1 x 9.98 RON](https://www.optimusdigital.ro/en/breadboards/8-breadboard-hq-830-points.html?search_query=Breadboard&results=362) |
 | [ESP32](https://static.optimusdigital.ro/43669-large_default/esp32-development-board-with-wifi-and-bluetooth-42.jpg) | Processing Sensors Data & Controlling RGB Lamps | [1 x 34.99 RON](https://www.optimusdigital.ro/en/bluetooth-boards/4371-esp32-development-board-with-wifi-and-bluetooth-42.html?search_query=ESP32&results=38) |
-| **TOTAL** | - | [**167.48 RON**] |
+| **TOTAL** | - | **167.48 RON** |
 
 # Technical Details
 
